@@ -30,24 +30,6 @@ struct state {
 typedef struct state State;
 
 
-void* new_thread_set_accept(void* thread_args_);
-void acceptInParallel(int* accept_i, bool* acceptArray,int* state, int* wordStart);
-/*
- N A Q U F\n
-q\n
-[q]\n
-[q a r [p]\n]
-
-gdzie
-    N to liczba linii opisu automatu;
-    A to rozmiar alfabetu: alfabet to zbiór {a,...,x}, gdzie 'x'-'a' = A-1;
-    Q to liczba stanów: stany to zbiór {0,...,Q-1};
-    U to liczba stanów uniwersalnych: stany uniwersalne to zbiór {0, .., U-1}, stany egzystencjalne to zbiór {U, .., Q-1};
-    F to liczba stanów akceptujących;
-    q,r,p to pewne stany;
-    a a to pewna litera alfabetu
-*/
-
 
 const int Z_ASCII = 122;
 struct automaton {
@@ -76,8 +58,35 @@ struct thread_args {
 };
 typedef struct thread_args Thread_args;
 
+
 char *INPUT;
 int numberOfTransitions[100][122]; //with state and sign [state][sign] 
+/*
+1.
+-tablica tablic accept[index][state]
+-funkcja ktora dla danego indeksu i state obliczy  accept[index][state]
+-funkcja ktora wykorzysta poprzednia do obliczenia dla indeksu wszystkich stanow 
+-testowanie czy dynamik dziala
+*/
+bool acceptArray[1000][100];
+
+
+
+/*
+ N A Q U F\n
+q\n
+[q]\n
+[q a r [p]\n]
+
+gdzie
+    N to liczba linii opisu automatu;
+    A to rozmiar alfabetu: alfabet to zbiór {a,...,x}, gdzie 'x'-'a' = A-1;
+    Q to liczba stanów: stany to zbiór {0,...,Q-1};
+    U to liczba stanów uniwersalnych: stany uniwersalne to zbiór {0, .., U-1}, stany egzystencjalne to zbiór {U, .., Q-1};
+    F to liczba stanów akceptujących;
+    q,r,p to pewne stany;
+    a a to pewna litera alfabetu
+*/
 
 
 int initSynchronizationVariables() {
@@ -100,6 +109,7 @@ bool canCreateNewProcess() {
 	return canCreate;
 }
 
+
 void endProcess() {
 	pthread_mutex_lock(&processNumberLock);
 	processNumber--;
@@ -107,11 +117,10 @@ void endProcess() {
 }
 
 
-
-
 void allocate_buffer(char** buffer, int size) {
 	*buffer = malloc(sizeof(char) * size);
 }
+
 
 void read_automaton_to_buffer(char* buffer, int argc, char *argv[]) {
 	int desc, buf_len = 0;
@@ -137,7 +146,6 @@ void read_automaton_to_buffer(char* buffer, int argc, char *argv[]) {
 }
 
 
-
 void saveToAutomatonHeader(Automaton* automaton, int header_index, int val) {
 	if(header_index == 0) automaton->N = val;
 	if(header_index == 1)	automaton->A = val;
@@ -145,6 +153,7 @@ void saveToAutomatonHeader(Automaton* automaton, int header_index, int val) {
 	if(header_index == 3)	automaton->U = val;
 	if(header_index == 4)	automaton->F = val;
 }
+
 
 void load_automaton_header(Automaton* automaton, char* buffer) {
 	int val;
@@ -186,6 +195,16 @@ void clearNumberOfTransision() {
 	}
 }
 
+void clearAcceptArray() {
+	int index, state;
+	for(index = 0; index < 1000; index++) {
+		for(state = 0; state < MAX_NUMBER_OF_STATES; state++) {
+			acceptArray[index][state] = false;
+		}
+	}
+}
+
+
 void printNumberOfTransision() {
 	int state, sign_offset, t;
 	for(state = 0; state < MAX_NUMBER_OF_STATES; state++) {
@@ -195,6 +214,7 @@ void printNumberOfTransision() {
 		}
 	}
 }
+
 
 int findNthLine(int n, char* buff) {
 	int i = 0;
@@ -211,6 +231,7 @@ int findNthLine(int n, char* buff) {
 	return i;
 }
 
+
 int findFirstLineWithTransisions(Automaton* automaton, char* buff) {
 	int line = 4;
 	return line;
@@ -220,6 +241,7 @@ int findFirstLineWithTransisions(Automaton* automaton, char* buff) {
 bool alphabetSign(char s) {
 	return (int)'a' <= (int)s && (int)s <= 'z'; 
 }
+
 
 void getNumber(int* val, int* numberBegin, char* buff) {
 	char str_int[3];
@@ -242,7 +264,6 @@ void nextNumber(int* val, int* numberBegin, int* numberEnd, char* buff) {
 	if(next != ' ' && next != '\n') {str_int[1] = next; (*numberEnd)++;}
 	*val = atoi(str_int);
 }
-
 
 
 void giveTransisionsInLine(int* lineBegin, int* nextLine, int* state, char* sign, int* transisions, char* buff) {
@@ -297,6 +318,7 @@ void updateNumberOfTransisions(Automaton* automaton, char* buff) {
 	
 }
 
+
 void allocate_automaton(int Q, Automaton* automaton) {
 	automaton->states = malloc(Q*sizeof(State));
 	int state, sign_offset;
@@ -314,9 +336,11 @@ void allocate_automaton(int Q, Automaton* automaton) {
 	}
 }
 
+
 void load_start_state(Automaton* automaton, char* buff) {
 
 }
+
 
 void load_accept_states(Automaton* automaton, char* buff) {
 	int acceptLineBegin = findNthLine(3, buff);
@@ -330,6 +354,7 @@ void load_accept_states(Automaton* automaton, char* buff) {
 		acceptLineBegin = nextLine;
 	}
 }
+
 
 void load_transisions(Automaton* automaton, char* buff) {
 	int line = findFirstLineWithTransisions(automaton, buff);
@@ -356,155 +381,19 @@ void load_automaton(Automaton* automaton, char* buff) {//medium
 	allocate_automaton(automaton->Q, automaton);
  	load_transisions(automaton, buff);	
 }
-//                                 int* accept_i, bool* acceptArray, int* state, int* wordStart
 
-
-/*
-void set_accept(bool* accept, int initialState) {
-	-stworz tablice bool nextStateAccept[ilosc tranzycji na initialState]
-	
-	-czy lisc? 
-		zwroc poprawny wynik zaleznie czy egzystencjalny czy uniwersalny
-	
-	-czy egzystencjalny?
-		wtedy petla po kolei sprawdz set_accept czy ktorys akceptuje bez wywolywania nowych
-	-czy uniwersalny?
-		dla ilu mozesz odpal nowy_watek_sprawdz_akceptacje a nastepny rob sam, po wyjsciu z funkcji gdy sam zawsze sprawdz czy znowu mozesz watki 
-			powolac
-		join i zwroc wynik
-}
-*/
 
 bool isUniversal(Automaton* automaton, int state) {//TO DO! inline 
 	return state <= automaton->U - 1;
 }
 
+
 void allocateArray(bool** array, int size) {
 	*array = malloc(sizeof(bool) * size);
 }
 
+
 bool leaf(int transisions) {return transisions == 0;}
-
-
-/*
-WORKING:
--odpala 1 watek wspolbieznie jesli nie przekroczyl limitu i jesli nie jest to ostatnia tranzycja
-
-
-*/
-
-
-void set_accept(int* accept_i, bool* acceptArray,int* state, int* wordStart) {
-	//tablica o rozmiarze takim jak ilosc tranzycji
-	//printf("set accept \n");
-	char sign = W[*wordStart];
-	int transisions = numberOfTransitions[*state][(int)sign];
-	int nextStart = *wordStart+1;
-
-	if(leaf(transisions)) {
-		//printf("state: %d jest lisciem \n", *state);
-		if(*wordStart == len) {
-			acceptArray[*accept_i] = automaton.acceptState[*state];
-			//printf("przeszlismy cale slowo, to co zapisalo %d \n ", automaton.acceptState[*state]);			
-		}
-		else {
-			acceptArray[*accept_i] = isUniversal(&automaton, *state);
-			//printf("nie przeszlismy ale lisc \n");
-		}
-		return;
-	}
-
-	
-	bool* nextStateAccept;
-	allocateArray(&nextStateAccept, transisions);
-	int* transisionStates = automaton.states[*state].transisions[(int)sign];
-	int i;
-	if(isUniversal(&automaton, *state)) {
-		//acceptInParallel(accept_i, nextStateAccept, state, wordStart);
-		for(i = 0; i < transisions; i++) { //  NOT PARALLEL
-			//printf("set accept Uniwersalny \n");
-			set_accept(&i, nextStateAccept, &transisionStates[i], &nextStart);
-		} //NOT PARALLEL version
-		acceptArray[*accept_i] = true;
-		for(i = 0; i < transisions; i++) {
-			if(!nextStateAccept[i]) {
-				acceptArray[*accept_i] = false; 
-				break;
-			}
-		}
-		free(nextStateAccept);
-		return;
-	}
-
-	//egzystencjalny
-	for(i = 0; i < transisions; i++) {
-		//printf("set accept egzystencjalny \n");
-		set_accept(&i, nextStateAccept, &transisionStates[i], &nextStart);
-	}
-	acceptArray[*accept_i] = false;
-	for(i = 0; i < transisions; i++) {
-		if(nextStateAccept[i]) {
-			//printf("akceptuje zbior tranzycji\n");
-			acceptArray[*accept_i] = true; 
-			break;
-		}
-	}
-	free(nextStateAccept);
-	return;
-}
-
-
-void* new_thread_set_accept(void* thread_args_) {
-	Thread_args* args = (Thread_args*) thread_args_;
-	set_accept(args->accept_i, args->acceptArray, args->state, args->wordStart);
-	endProcess();
-	return NULL;
-}
-
-
-void acceptInParallel(int* accept_i, bool* acceptArray,int* state, int* wordStart) {
-	char sign = W[*wordStart];
-	int transisions = numberOfTransitions[*state][(int)sign];
-	int* transisionStates = automaton.states[*state].transisions[(int)sign];
-	int nextStart = *wordStart+1;
-	int i = 0;
-	 
-	if(transisions == 0 || !canCreateNewProcess()) {
-		set_accept(&i, acceptArray, &transisionStates[i], &nextStart);
-		return;
-	}
-	//printf("nie bardzo powinienem tu byc\n");
-	int thread_i  = 0;
-	int thread_wordStart = *wordStart+1;
-	pthread_t new_thread;
-	int iret;
-	//new_thread_set_accept(void* accept_i, void* acceptArray, void* state, void* wordStart)
-	Thread_args args;
-	args.accept_i = &thread_i;
-	args.acceptArray = acceptArray;
-	args.state = state;
-	args.wordStart = &thread_wordStart;
-	
-	iret = pthread_create(&new_thread, NULL, new_thread_set_accept, (void*) &args);
-    if(iret)
-    {
-    	//fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
-        syserr("ERROR in pthread_create()\n");
-    }	
-
-	for(i = 1; i < transisions; i++) {
-		//printf("set accept Uniwersalny \n");
-		set_accept(&i, acceptArray, &transisionStates[i], &nextStart);
-	}
-	pthread_join(new_thread, NULL); 
-}
-//wersja rekurencyjna-podstawowa  OK
-//najpierw nie odpalaj nowy_watek, cala poprawnosc zawrze sie w set_accept OK
-//jesli dziala dla prostych, przetestuj dla trudniejszych i naprawd OK
-//potem popraw zeby bylo wielowatkowo
-//jesli dziala dla prostych, przetestuj dla trudniejszych i naprawd
-//zamiast tablicy zrob parametr czy uniwersalny? i moze mutex?
-//rozwaz zrobienie stosu
 
 
 void print_automat(Automaton* automaton) {
@@ -544,24 +433,84 @@ void print_automat(Automaton* automaton) {
 
 
 
+//acceptArray[i][state] oznacza ze prefiks zaczynajacy sie od litery na i-tej pozycji i stanie poczatkowym state jest akceptowane
+/*
+dla slowa dlugosci 5 to acceptArray[4][state] sprawdzi dla acceptArray[5][state] - czyli puste slowo i zalezy tylko od akceptacji stanu
+
+*/
+
+
+void set_acceptArray(int wordStart, int state, int transisions) {
+	char sign = W[wordStart];
+
+	if(wordStart == len) {acceptArray[wordStart][state] = automaton.acceptState[state]; return;}
+	if(leaf(transisions)) {acceptArray[wordStart][state] = isUniversal(&automaton, state); return;}
+
+	int* transisionStates = automaton.states[state].transisions[(int)sign];
+	int i;
+	acceptArray[wordStart][state] = false;
+	if(isUniversal(&automaton, state)) { //uniwersalny
+		for(i = 0; i < transisions; i++) {
+			if(!acceptArray[wordStart+1][transisionStates[i]]) {
+				return;
+			}
+		}
+		acceptArray[wordStart][state] = true;
+		return;
+	}
+
+	//egzystencalny
+	for(i = 0; i < transisions; i++) {
+		if(acceptArray[wordStart+1][transisionStates[i]]) {
+			acceptArray[wordStart][state] = true;
+			return;
+		}
+	}
+}
+
+void acceptAllStates(int wordStart, Automaton* automaton) {
+	int state;
+	char sign = W[wordStart];
+	int transisions;
+	for(state = 0; state < automaton->Q; state++) {
+		transisions = numberOfTransitions[state][(int)sign];
+		set_acceptArray(wordStart, state, transisions);//TODO nie przekazuj tranzycji przez parametr bo dla 0 tez to trzeba obliczyc wiec i tak odpalisz set_acceptArray		
+	}
+}
+
+
+bool acceptWord(Automaton* automaton) {
+	int wordStart;
+	for(wordStart = len; wordStart >= 0; wordStart--) {
+		acceptAllStates(wordStart, automaton);
+	}
+	return acceptArray[0][automaton->startState];
+}
+
+
 int main(int argc, char *argv[])
 {
 	//TESTOWANE SLOWO
-	clearNumberOfTransision();
+	
 
 	printf("teraz go alokuje \n");
 //ababababababababababababababab
-	char* slowo = "abababababababababababababababababababababababababab"; 
-	len = 52;
+//abababababababababababababababababababababababababab 52
+	printf("przed wczytaniem\n");
+	print_automat(&automaton);
+	char* slowo = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"; 
+	len = 67;
 	for(int k = 0; k < len; k++) {
 		W[k] = slowo[k];
 	}
 
 	//printNumberOfTransision();
 	allocate_buffer(&INPUT, 2000000);
-
+	clearNumberOfTransision();
+	clearAcceptArray();
 	read_automaton_to_buffer(INPUT, argc, argv);
 	load_automaton(&automaton, INPUT);//TO DO! testy przesylania i wczytywania automatow
+	automaton.startState = 0;
 	//sprawdz szczegolne przypadki
 	//napisz wczytywanie akceptujacego
 	
@@ -572,21 +521,19 @@ int main(int argc, char *argv[])
 	print_automat(&automaton);
 	printf("\nAUTOMAT WYPISANY\n");
 	
-	int size = 1;
-	int startState = 0;
-	bool* wynik;
-	allocateArray(&wynik, size);
-	printf("set accept start \n");
-	int index = 0;
-	int wordStart = 0;
-	set_accept(&index, wynik, &startState, &wordStart);
+	//int size = 1;
+	//int startState = 0;
 
+	printf("set accept start \n");
+	//int index = 0;
+	//int wordStart = 0;
+
+	bool wynik = acceptWord(&automaton);
 
 	printf("zakonczono sprawdzenie :)\n");
-	if(wynik[0]) printf("slowo AKCEPTOWANE przez automat \n");
+	if(wynik) printf("slowo AKCEPTOWANE przez automat \n");
 	else printf("slowo NIE-akceptowane przez automat \n");
 	
-	free(wynik);
 	
   return 0;
 }

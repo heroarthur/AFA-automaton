@@ -8,10 +8,41 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <mqueue.h>
 
 
 #include "err.h"
 
+
+#define MAX_PID 32768
+#define MAX_SIZE 1024
+#define int64 long long int
+#define accepted 'T'
+#define rejected 'N'
+
+
+
+#define NO_MORE_REQUEST '!'
+#define QUEUE_NAME "/tester" 
+#define MAX_QUEUE_NAME 50
+#define MAX_PID_LEN 12
+
+#define TESTER_REQUEST_SUCCES 1
+#define RUN_REQUEST_SUCCES 1
+
+//message validator -> tester: T$aaaabbac#  
+//message tester -> validator: t@3321$aaaabbc# albo T$!#
+//message validator -> run 3321$aaaaabbc@automat#
+//message run -> validator: r@3321$Taaaaabc#
+
+
+const char* wordStart = "$";
+const char* automatonStartChar = "@";
+const char* wordEnd = "#";
+
+
+const char* wordAccepted = "T";
+const char* wordRejected = "F";
 
 
 enum Validation {Succes = 0, Failed = 1};
@@ -46,21 +77,25 @@ struct checked_word {
 	int len;
 };
 typedef struct checked_word Word;
+
+
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 //Word word;
-char W[100];
+char W[MAX_SIZE];
 int len;
 
 struct thread_args {
-	int* accept_i;
-	bool* acceptArray;
-	int* state;
-	int* wordStart;
+	int wordStart;
+	int state;
 };
 typedef struct thread_args Thread_args;
-
+Thread_args thread_arguments[100];
 
 char *INPUT;
 int numberOfTransitions[100][122]; //with state and sign [state][sign] 
+pthread_t threads[100];
+
+
 /*
 1.
 -tablica tablic accept[index][state]
@@ -92,7 +127,7 @@ gdzie
 int initSynchronizationVariables() {
 	if (pthread_mutex_init(&processNumberLock, NULL) != 0)
     {
-        printf("\n mutex init failed\n");
+        //printf("\n mutex init failed\n");
         return Failed;
     }	
 	return Succes;
@@ -129,11 +164,11 @@ void read_automaton_to_buffer(char* buffer, int argc, char *argv[]) {
   if (argc != 2)
     fatal("Usage: %s \n", argv[0]);
   
-  printf("Child, trying to open |%s|\n", argv[1]);
+  //printf("Child, trying to open |%s|\n", argv[1]);
   desc = open(argv[1], O_RDWR);
   if(desc == -1) syserr("Child, error in open:");
   
-  printf("Child, reading data from descriptor %d\n\n", desc);
+  //printf("Child, reading data from descriptor %d\n\n", desc);
 	char lastRead = ' ';
 	while(lastRead != '#') {
 		if ((buf_len += read(desc, buffer+buf_len, 1)) == -1) syserr("Error in read\n");
@@ -143,6 +178,7 @@ void read_automaton_to_buffer(char* buffer, int argc, char *argv[]) {
 	buffer[buf_len] = '\0';	
   if (buf_len == 0) fatal("Unexpected end-of-file\n");
   if(close(desc)) syserr("Child, error in close\n");
+	//printf("zawartosc wczytanego INPUT: %s \n", buffer);
 }
 
 
@@ -267,7 +303,7 @@ void nextNumber(int* val, int* numberBegin, int* numberEnd, char* buff) {
 
 
 void giveTransisionsInLine(int* lineBegin, int* nextLine, int* state, char* sign, int* transisions, char* buff) {
-	printf("LADUJE TRANZYCJE \n");
+	//printf("LADUJE TRANZYCJE \n");
 	int i = *lineBegin;
 	char last = '@';
 	int spaces = 0;
@@ -308,14 +344,12 @@ void updateNumberOfTransisions(Automaton* automaton, char* buff) {
 	int state;
 	char sign;
 	int transisions;
-
 	while(buff[begin] != '#') {
 		giveTransisionsInLine(&begin, &next, &state, &sign, &transisions, buff);
-		printf("uzyskano: state: %d, sign: %c, tr: %d \n", state, sign, transisions);
+		//printf("uzyskano: state: %d, sign: %c, tr: %d \n", state, sign, transisions);
 		numberOfTransitions[state][(int)sign] = transisions;
 		begin = next;
-	}
-	
+	}	
 }
 
 
@@ -373,7 +407,6 @@ void load_transisions(Automaton* automaton, char* buff) {
 
 
 void load_automaton(Automaton* automaton, char* buff) {//medium	
-
 	load_automaton_header(automaton, buff);
 	load_start_state(automaton, buff); //TODO!
 	load_accept_states(automaton, buff);
@@ -440,42 +473,59 @@ dla slowa dlugosci 5 to acceptArray[4][state] sprawdzi dla acceptArray[5][state]
 */
 
 
-void set_acceptArray(int wordStart, int state, int transisions) {
-	char sign = W[wordStart];
+void* set_acceptArray(void* argPtr) {	
+	Thread_args* args = (Thread_args*) argPtr;
+	char sign = W[args->wordStart];
+	int transisions = numberOfTransitions[args->state][(int)sign];
 
-	if(wordStart == len) {acceptArray[wordStart][state] = automaton.acceptState[state]; return;}
-	if(leaf(transisions)) {acceptArray[wordStart][state] = isUniversal(&automaton, state); return;}
+	if(args->wordStart == len) {acceptArray[args->wordStart][args->state] = automaton.acceptState[args->state]; return NULL;}
+	if(leaf(transisions)) {acceptArray[args->wordStart][args->state] = isUniversal(&automaton, args->state); return NULL;}
 
-	int* transisionStates = automaton.states[state].transisions[(int)sign];
+	int* transisionStates = automaton.states[args->state].transisions[(int)sign];
 	int i;
-	acceptArray[wordStart][state] = false;
-	if(isUniversal(&automaton, state)) { //uniwersalny
+	acceptArray[args->wordStart][args->state] = false;
+	if(isUniversal(&automaton, args->state)) { //uniwersalny
 		for(i = 0; i < transisions; i++) {
-			if(!acceptArray[wordStart+1][transisionStates[i]]) {
-				return;
+			if(!acceptArray[args->wordStart+1][transisionStates[i]]) {
+				return NULL;
 			}
 		}
-		acceptArray[wordStart][state] = true;
-		return;
+		acceptArray[args->wordStart][args->state] = true;
+		return NULL;
 	}
 
 	//egzystencalny
 	for(i = 0; i < transisions; i++) {
-		if(acceptArray[wordStart+1][transisionStates[i]]) {
-			acceptArray[wordStart][state] = true;
-			return;
+		if(acceptArray[args->wordStart+1][transisionStates[i]]) {
+			acceptArray[args->wordStart][args->state] = true;
+			return NULL;
 		}
+	}
+	return NULL;
+}
+
+void joinThreads(int count) {
+	int i;	
+	for(i = 0; i < count; i++) {
+		pthread_join(threads[i], NULL); 
 	}
 }
 
 void acceptAllStates(int wordStart, Automaton* automaton) {
 	int state;
-	char sign = W[wordStart];
-	int transisions;
+	int iret;
 	for(state = 0; state < automaton->Q; state++) {
-		transisions = numberOfTransitions[state][(int)sign];
-		set_acceptArray(wordStart, state, transisions);//TODO nie przekazuj tranzycji przez parametr bo dla 0 tez to trzeba obliczyc wiec i tak odpalisz set_acceptArray		
-	}
+		thread_arguments[state].wordStart = wordStart;
+		thread_arguments[state].state = state;
+
+		iret = pthread_create(&threads[state], NULL, set_acceptArray, (void*) &thread_arguments[state]);
+		if(iret)
+		{
+			fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
+			exit(EXIT_FAILURE);
+			}
+		}
+		joinThreads(automaton->Q);
 }
 
 
@@ -488,52 +538,119 @@ bool acceptWord(Automaton* automaton) {
 }
 
 
+//message validator -> run 3321$aaaaabbc@automat#
+//message run -> validator: r@3321$Taaaaabc#
+
+
+//const char* wordStart = "$";
+//const char* automatonStart = "@";
+int findSymbolPosition(const char* symbol, const char* buff) {
+	int i;
+	int len = strlen(buff);
+	for(i = 0; i < len; i++) {
+		if(symbol[0] == buff[i]) return i; 
+	}
+	return len;
+}
+
+void copyDataFromMessage(int dataBegin, int dataLen, int maxDataSize, char* data, const char* message) {
+	memset(data, 0, maxDataSize);
+	strncpy(data, message+dataBegin, dataLen);
+}
+
+void strToInt(int* result, char* strData) {
+	*result = atoi(strData);
+}
+
+
+void readPID(char* pid, const char* buff) {
+	int pidBegin = 0;
+	memset(pid, 0, MAX_PID_LEN);
+	int pidLen = findSymbolPosition(wordStart, buff);
+	copyDataFromMessage(pidBegin, pidLen, MAX_PID_LEN, pid, buff);
+	//printf("otrzymany pid: %s \n", pid);
+}
+
+
+//char W[MAX_SIZE];
+//int len;
+void readWordToProcess(char* word, const char* buff) {
+	int wordStartChar = findSymbolPosition(wordStart, buff);
+	int automatonStart = findSymbolPosition(automatonStartChar, buff);
+	//printf("wczytuje slowo, automato START_CHAR %d \n", automatonStart);
+	memset(word, 0, MAX_SIZE);
+	int wordLen = automatonStart - wordStartChar -1;
+	len = wordLen;
+	copyDataFromMessage(wordStartChar+1, wordLen, MAX_SIZE, word, buff);
+	//printf("wordLen: %d ,otrzymane slowo: %s \n", wordLen, word);
+}
+
+//message run -> validator: r@3321$Taaaaabc#
+
+void setAnswerToValidator(bool wordAcceptance, char* pid, char* word, char* answerBuff) {
+	//printf("co jest 2?\n");
+	char accept[1];
+	accept[0] = 'F';
+	if(wordAcceptance) accept[0] = 'T';
+	//printf("co jest \n");
+	memset(answerBuff, 0, MAX_SIZE);
+	strcpy(answerBuff, "r");
+	strcat(answerBuff, automatonStartChar);
+	strcat(answerBuff, pid);
+	strcat(answerBuff, wordStart);
+	strcat(answerBuff, accept);
+	strcat(answerBuff, word);
+	strcat(answerBuff, wordEnd);
+	//printf("stworzona wiadomosc: %s  \n", answerBuff);
+}
+
+
+int sendAnswerToValidator(bool wordAcceptance, char* pid, char* word, char* answerBuff) {
+	//printf("sendAnswerToValidator \n");
+	setAnswerToValidator(wordAcceptance, pid, word, answerBuff);	
+	//printf("odsylam wiadomosc %s \n", answerBuff);
+	mqd_t validatorQueue;
+	char* validatorQueueName = "/validatorReceive";
+	int ret;
+    validatorQueue = mq_open(validatorQueueName, O_WRONLY);
+	if(validatorQueue < 0) return 0;
+	ret = mq_send(validatorQueue, answerBuff, MAX_SIZE, 0);
+	//printf("run do validatora \n");
+	if(ret < 0) return 0;
+	return 1;
+}
+
+
 int main(int argc, char *argv[])
 {
-	//TESTOWANE SLOWO
-	
+	char buffPid[MAX_PID_LEN];
+	//char word[MAX_SIZE];
+	char answerToValidator[MAX_SIZE];
 
-	printf("teraz go alokuje \n");
-//ababababababababababababababab
-//abababababababababababababababababababababababababab 52
-	printf("przed wczytaniem\n");
-	print_automat(&automaton);
-	char* slowo = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"; 
-	len = 67;
-	for(int k = 0; k < len; k++) {
-		W[k] = slowo[k];
-	}
-
-	//printNumberOfTransision();
 	allocate_buffer(&INPUT, 2000000);
 	clearNumberOfTransision();
 	clearAcceptArray();
 	read_automaton_to_buffer(INPUT, argc, argv);
-	load_automaton(&automaton, INPUT);//TO DO! testy przesylania i wczytywania automatow
+
+	readPID(buffPid, INPUT);
+	readWordToProcess(W, INPUT);
+	//printf("odczytalem word, pid: %s  |  %s  \n", buffPid, word);
+
+	int automatonStart = findSymbolPosition(automatonStartChar, INPUT)+1;
+	//printf("automatonStart: %d \n", automatonStart);
+	load_automaton(&automaton, INPUT+automatonStart);
 	automaton.startState = 0;
-	//sprawdz szczegolne przypadki
-	//napisz wczytywanie akceptujacego
 	
-	//zaprojektuj pthread do akceptowania slowa, prosta przejrzysta konstrukcja, rekurencja dozwolona (pozniej moze derekurencja)
-	//napisz 70%
+	//print_automat(&automaton);
 
 
-	print_automat(&automaton);
-	printf("\nAUTOMAT WYPISANY\n");
-	
-	//int size = 1;
-	//int startState = 0;
 
-	printf("set accept start \n");
-	//int index = 0;
-	//int wordStart = 0;
 
 	bool wynik = acceptWord(&automaton);
-
-	printf("zakonczono sprawdzenie :)\n");
-	if(wynik) printf("slowo AKCEPTOWANE przez automat \n");
-	else printf("slowo NIE-akceptowane przez automat \n");
+	//if(wynik) printf("slowo AKCEPTOWANE przez automat len: \n");
+	//else printf("slowo NIE-akceptowane przez automat  len: \n");
 	
+	if(!sendAnswerToValidator(wynik, buffPid, W, answerToValidator)) printf("send answer to validator ERROR\n");	
 	
   return 0;
 }

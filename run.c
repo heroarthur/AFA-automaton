@@ -372,7 +372,11 @@ void allocate_automaton(int Q, Automaton* automaton) {
 
 
 void load_start_state(Automaton* automaton, char* buff) {
-
+	int start_state;
+	int startLineBegin = findNthLine(2, buff);
+	int nextLine;
+	nextNumber(&start_state, &startLineBegin, &nextLine, buff);
+	automaton->startState = start_state;
 }
 
 
@@ -572,6 +576,8 @@ void readPID(char* pid, const char* buff) {
 }
 
 
+
+
 //char W[MAX_SIZE];
 //int len;
 void readWordToProcess(char* word, const char* buff) {
@@ -615,6 +621,7 @@ int sendAnswerToValidator(bool wordAcceptance, char* pid, char* word, char* answ
     validatorQueue = mq_open(validatorQueueName, O_WRONLY);
 	if(validatorQueue < 0) return 0;
 	ret = mq_send(validatorQueue, answerBuff, MAX_SIZE, 0);
+	printf("odeslana odpowiedz: %s \n", answerBuff);
 	//printf("run do validatora \n");
 	if(ret < 0) return 0;
 	return 1;
@@ -623,6 +630,7 @@ int sendAnswerToValidator(bool wordAcceptance, char* pid, char* word, char* answ
 
 int main(int argc, char *argv[])
 {
+
 	char buffPid[MAX_PID_LEN];
 	//char word[MAX_SIZE];
 	char answerToValidator[MAX_SIZE];
@@ -631,6 +639,7 @@ int main(int argc, char *argv[])
 	clearNumberOfTransision();
 	clearAcceptArray();
 	read_automaton_to_buffer(INPUT, argc, argv);
+	printf("RUN: wczytany automat: %s \n", INPUT);
 
 	readPID(buffPid, INPUT);
 	readWordToProcess(W, INPUT);
@@ -639,7 +648,6 @@ int main(int argc, char *argv[])
 	int automatonStart = findSymbolPosition(automatonStartChar, INPUT)+1;
 	//printf("automatonStart: %d \n", automatonStart);
 	load_automaton(&automaton, INPUT+automatonStart);
-	automaton.startState = 0;
 	
 	//print_automat(&automaton);
 

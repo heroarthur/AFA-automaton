@@ -1,4 +1,4 @@
-//fifo_parent.c
+//DeJa Vu
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <string.h>
-#include <sys/stat.h>        /* For mode constants */
+#include <sys/stat.h>        /* SPITFIRE */
 #include <mqueue.h>
 #include <stdbool.h>
 
@@ -39,13 +39,12 @@ struct state {
 typedef struct state State;
 
 struct automaton {
-	int N, A, Q, U, F; //automaton header
+	int N, A, Q, U, F;
 	int startState;
 	bool acceptState[122];
 	State* states;
 };
 typedef struct automaton Automaton;
-//Automaton automaton; //definition of automaton
 
 
 const char* pidStart = "@";
@@ -53,11 +52,10 @@ const char* wordStart = "$";
 const char* wordEnd = "#";
 const char* terminateTesterMessage = "T$!#\0";
 
-//message validator -> tester: T$aaaabbac#  
-//message tester -> validator: t@3321$aaaabbc# albo T$!#
-//message run -> validator: r@3321$Taaaaabc#
 
-//message validator -> run 3321$aaaaabbc@automat#
+char* queueName = "/validatorReceive";
+int validatorQueueDescriptor;
+
 
 int queryOfProcessWithPid[MAX_PID];
 int acceptedQueryOfProcessWithPid[MAX_PID];
@@ -67,8 +65,9 @@ bool haveTesterQueueDescriptor[MAX_PID];
 int numberOfRun = 0;
 bool AUTOMATON_RECEIVE = true;
 
-char* allocatedAutomaton; //= "7 2 2 1 1\n0\n0\n0 a 0 1\n0 b 0\n1 a 1\n1 b 0\n#\0";
-int automatonSize = 50;
+char* allocatedAutomaton;
+//int automatonSize = 50;
+
 int currentNumberOfPendingRun = 0;
 
 int validatorQueries = 0;
@@ -100,7 +99,6 @@ void setQueueName(const char* buffPID, char* name) {
 	memset(name, 0, MAX_QUEUE_NAME);
 	strcpy(name, QUEUE_NAME);
 	strcat(name, buffPID);
-	//printf("wartosc name: %s \n", name);
 }
 
 void setMessageToTester(const char* wordAcceptance, const char* word, char* messageBuff) {
@@ -114,12 +112,6 @@ void setMessageToTester(const char* wordAcceptance, const char* word, char* mess
 	strcat(messageBuff, wordEnd);
 }
 
-
-
-
-
-
-void odpalRunDlaSlowa_NA_NIBY() {};
 
 
 void findParseCharacters(int* pidStartChar, int* wordStartChar, int* wordEndChar, const char* message, const int size) {
@@ -137,7 +129,6 @@ void copyDataFromMessage(int dataBegin, int dataLen, int maxDataSize, char* data
 }
 
 void strToInt(int* result, const char* strData) {
-	//sprintf(*result, "%d", strData); odwrotna konwersja
 	*result = atoi(strData);
 }
 
@@ -148,88 +139,10 @@ void uniqueFifoName(char* name) {
 	memset(buffPid, 0, MAX_PID_LEN);
 	memset(name, 0, MAX_QUEUE_NAME);
 	sprintf(buffPid, "%d", pid);
-	strcpy(name, "/tmp/");
+	strcpy(name, "/tmp/SuperEurobeat_");
 	strcat(name, buffPid);
-	//printf("wygenerowana nazwa dla kolejki: %s \n", name);
 }
 
-
-
-int executeAndWaitForRunEnding(char* messageHeaderBuff) {
-	int desc;
-	int wrote = 0;
-	//int message_len = 88;
-	char file_name[MAX_QUEUE_NAME];
-	uniqueFifoName(file_name);
-	int messageChunk = 1000;
-
-	if(mkfifo(file_name, 0755)) syserr("Error in mkfifo:");  
-	switch (fork()) {                     /* fork*/
-		case -1: 
-			syserr("Error in fork\n");  
-		case 0:                                   /* child */
-			//printf("I am a child and my pid is %d\n", getpid());      
-			execlp("./run", "./run", file_name, NULL); /* exec */
-      		syserr("Error in execlp\n");    
-	default:                                  /* parent */
-		break;
-	}
-   
-    desc = open(file_name, O_WRONLY);
-    if(desc == -1) syserr("Error in open:");
-	
-	int wrote_pos = 0;
-	int headerSize = strlen(messageHeaderBuff);
-	wrote = write(desc, messageHeaderBuff, headerSize);
-	if (wrote < 0) 
-			syserr("Error in write\n");
-	while( (wrote = write(desc, allocatedAutomaton+wrote_pos, messageChunk) <= 0) ) {
-		wrote_pos += wrote;
-		if(wrote_pos >= automatonSize) break;
-		if (wrote < 0) 
-			syserr("Error in write\n");
-	}
-	//printf("Automat wyslany\n");    
-    if (wait(0) == -1) syserr("Error in wait\n");    
-    if(close(desc)) syserr("Error in close\n");      
-    if(unlink(file_name)) syserr("Error in unlink:");
-	exit(1);
-	return 1;
-}
- 
-
-int processRequestWordWithRun(char* messageHeader) {
-	
-	switch (fork()) {//odpala run i czeka na niego
-    case -1: 
-      syserr("Error in fork\n");
-   
-	case 0:                                   /* odpala run i przekazuje mu parametr*/
-		executeAndWaitForRunEnding(messageHeader);
-			
-    //default:                                  /* parent */
-		//printf("glowny watek, uruchomilem RUN\n");		
-	}
-	return 1;
-}
-
-
-/*
-Rcd: x\n
-Snt: y\n
-Acc: z\n
-[PID: pid\n
-Rcd: p\n
-Acc: q\n]
-gdzie
-x to liczba wysłanych zapytań wszystkich zapytań odebranych przez validator;
-y to liczba otrzymanych odpowiedzi wszystkich odpowiedzi wysłanych testerom przez proces validator;
-z to liczba poprawnych słów wszystkich słów zaakceptowanych przez proces validator;
-pid to pid procesu testera;
-p to liczba wysłanych zapytań przez proces o PIDzie pid;
-q to liczba zaakceptowanych słów przesłanych przez proces o PIDzie pid;
-
-*/
 
 void printAnswerToTesterWithPid(int pid) {
 	printf("PID: %d\n", pid);
@@ -248,16 +161,100 @@ void printValidatorRaport(int x, int y, int z) {
 }
 
 
+void sendTerminateToTester(int pid) {
+	mq_send(testerQueuesDescriptors[pid], terminateTesterMessage, strlen(terminateTesterMessage), 0);
+	haveTesterQueueDescriptor[pid] = false;
+	mq_close(testerQueuesDescriptors[pid]);
+}
 
 
-void endValidatorProcess() {//przestaje czekac juz na wiadomosci i konczy
+void closeQueues() {
+	if (mq_close(validatorQueueDescriptor)) syserr("Error in close:");
+	if (mq_unlink(queueName)) syserr("Error in unlink:");
+}
+
+void endValidatorProcess(int exit_value) {
 	free(allocatedAutomaton);
 	printValidatorRaport(validatorQueries, validatorAnswer, validatorAcceptQueries);
-	exit(0);
-	//zwolnij zasoby
-	//wypisz raport
-	//zakoncz
+	//TODO pozamykac te kolejki!
+	closeQueues();
+	exit(exit_value);
 }
+
+
+void closeImmidiatellyAllTesters() {
+	int pid;
+	for(pid = 0; pid < MAX_PID; pid++) {
+		if(haveTesterQueueDescriptor[pid]) {
+			sendTerminateToTester(pid);			
+		}
+	}
+	endValidatorProcess(1);	
+}
+
+
+int executeAndWaitForRunEnding(char* messageHeaderBuff) {
+	int desc;
+	int wrote = 0;
+	char file_name[MAX_QUEUE_NAME];
+	uniqueFifoName(file_name);
+	int messageChunk = 1000;
+
+	if(mkfifo(file_name, 0755)) syserr("Error in mkfifo:");  
+	switch (fork()) {                     /* fork*/
+		case -1: 
+			syserr("Error in fork\n");
+		case 0:                                   /* child */
+			execlp("./run", "./run", file_name, NULL); /* exec */
+      		syserr("Error in execlp\n");    
+	default:                                  /* parent */
+		break;
+	}
+   
+    desc = open(file_name, O_WRONLY);
+    if(desc == -1) syserr("Error in open:");
+	
+	int wrote_pos = 0;
+	int headerSize = strlen(messageHeaderBuff);
+	int automatonSize = (int)strlen(allocatedAutomaton);
+	wrote = write(desc, messageHeaderBuff, headerSize);
+	if (wrote < 0) 
+			syserr("Error in write\n");
+	while( (wrote = write(desc, allocatedAutomaton+wrote_pos, messageChunk) != 0) ) {
+		wrote_pos += messageChunk;
+		if(wrote_pos >= automatonSize || wrote == 0) break;
+		if (wrote < 0) 
+			syserr("Error in write\n");
+	}
+    if (wait(0) == -1) syserr("Error in wait\n");    
+    if(close(desc)) syserr("Error in close\n");    
+	exit(1);
+	return 1;
+}
+ 
+
+int processRequestWordWithRun(char* messageHeader) {
+	
+	switch (fork()) {
+    case -1: 
+      	syserr("Error in fork\n");
+   		closeImmidiatellyAllTesters();
+	case 0:
+		executeAndWaitForRunEnding(messageHeader);
+			
+	}
+	return 1;
+}
+
+
+
+
+
+
+
+
+
+
 
 
 void setMessageHeaderToRun(const char* pid, const char* word, char* header) {
@@ -278,23 +275,24 @@ int findSymbolPosition(const char* symbol, const char* buff) {
 	return len;
 }
 
-void sendTerminateToTester(int pid) {
-	mq_send(testerQueuesDescriptors[pid], terminateTesterMessage, strlen(terminateTesterMessage), 0);
-	haveTesterQueueDescriptor[pid] = false;
-	mq_close(testerQueuesDescriptors[pid]);
-}
+
+
+
 
 void sendTerminatingMessageToTesters() {
-	int pid;	
+	int pid;
 	for(pid = 0; pid < MAX_PID; pid++) {
 		if(haveTesterQueueDescriptor[pid] && runForTesterWithPid[pid] == 0) {
 			sendTerminateToTester(pid);			
 		}
 	}
 	if(numberOfRun == 0) {
-		endValidatorProcess();
+		fflush(stdin);
+		endValidatorProcess(0);
 	}
 }
+
+
 
 
 void validatorReceivedTerminate() {
@@ -302,10 +300,6 @@ void validatorReceivedTerminate() {
 	sendTerminatingMessageToTesters();
 	
 }
-
-
-
-
 
 
 
@@ -323,36 +317,16 @@ int sentAnswerToTester(const char* wordAcceptance, const char* pid, const char* 
 	setMessageToTester(wordAcceptance, word, messageBuff);
 	ret = mq_send(validatorAswersQueue, messageBuff, strlen(messageBuff), 1);
   	if (ret < 0) {printf("We have written message of sizeee %ld\n", strlen(messageBuff)); return 0;}
-	if(!AUTOMATON_RECEIVE && runForTesterWithPid[testerPid] > 0) {
+	
+	if(!AUTOMATON_RECEIVE) printf("czekam juz tylko, z pidem: %d pozostalo %d \n", testerPid, runForTesterWithPid[testerPid]);
+	if(!AUTOMATON_RECEIVE && runForTesterWithPid[testerPid] == 0) {
+		printf("wysylam terminate z opoznieniem\n");
 		sendTerminateToTester(testerPid);
 	}
 	return TESTER_REQUEST_SUCCES;
-	/*
-	mqd_t validatorAswersQueue;
-	int ret;
-
-	setQueueName(pid, queueName);
-	setMessageToTester(wordAcceptance, word, messageBuff);
-
-    validatorAswersQueue = mq_open(queueName, O_WRONLY);
-	if(validatorAswersQueue == -1) {syserr("opening tester queue\n"); return 0;}
-	ret = mq_send(validatorAswersQueue, messageBuff, strlen(messageBuff), 1);
-  	if (ret < 0) {printf("We have written message of sizeee %ld\n", strlen(messageBuff)); return 0;}
-	int testerPid;
-	strToInt(testerPid, pid);
-	if(!AUTOMATON_RECEIVE && runForTesterWithPid[testerPid] > 0) {
-		sendTerminateToTester(testerPid);
-	}
-	return TESTER_REQUEST_SUCCES;	*/
 }
 
-/*
-int queryOfProcessWithPid[MAX_PID];
-int acceptedQueryOfProcessWithPid[MAX_PID];
-mqd_t testerQueuesDescriptors[MAX_PID];
-int runForTesterWithPid[MAX_PID];
-bool haveTesterQueueDescriptor[MAX_PID];
-*/
+
 
 int updateTestersInformationData(const char* pid) {
 	int testerPid;
@@ -360,7 +334,6 @@ int updateTestersInformationData(const char* pid) {
 
 	if(!haveTesterQueueDescriptor[testerPid]) {
 		mqd_t validatorAswersQueue;
-		//int ret;
 
 		char queueName[MAX_QUEUE_NAME];
 		memset(queueName, 0, MAX_QUEUE_NAME);
@@ -369,10 +342,7 @@ int updateTestersInformationData(const char* pid) {
 		if(validatorAswersQueue == -1) {syserr("opening tester queue\n"); return 0;}
 	
 		testerQueuesDescriptors[testerPid] = validatorAswersQueue;
-		//int runForTesterWithPid[testerPid]; to w odpaleniu run
 		haveTesterQueueDescriptor[testerPid] = true;
-		//ret = mq_send(validatorAswersQueue, messageBuff, strlen(messageBuff), 1);
-	  	//if (ret < 0) {printf("We have written message of sizeee %ld\n", strlen(messageBuff)); return 0;}
 	}
 	return 1;
 }
@@ -405,15 +375,23 @@ int processFromTester(char* buffPID, char* buffWord, const char* message, const 
 	updateTestersInformationData(buffPID);
 	processRequestWordWithRun(messageHeader);
 	
-	//executeAndWaitForRunEnding(messageHeader);	
 	return 1;
 }
 
+
+bool checkIfNoRun() {
+	int i;
+	for(i = 0; i < MAX_PID; i++) {
+		if (runForTesterWithPid[i] != 0) return false;
+	}
+	return true;
+}
 
 
 //message run -> validator: r@3321$Taaaaabc#
 int processFromRun(char* buffPID, char* buffWord, char* answerBuff, const char* message, const int messageSize) {
 	//printf("slowo do process od run: %s \n", message);
+	if(!AUTOMATON_RECEIVE) printf("otrzymalem wiadomosc od RUN gdy juz nie przyjmuje\n");
 	numberOfRun--;
 	validatorAnswer++;
 	int pidStartChar, wordStartChar, wordEndChar;
@@ -429,21 +407,20 @@ int processFromRun(char* buffPID, char* buffWord, char* answerBuff, const char* 
 	copyDataFromMessage(wordStart, wordLen, MAX_SIZE, buffWord, message);
 	int testerPid;
 	strToInt(&testerPid, buffPID);
-	//queryOfProcessWithPid[testerPid]++;
 	acceptance[0] = message[wordStartChar+1];
 	if(acceptance[0] == 'T') {acceptedQueryOfProcessWithPid[testerPid]++; validatorAcceptQueries++;}
 	runForTesterWithPid[testerPid]--;
-	//przekopioj zawartosc message do odpowiednich tablic
-	//pid na int
-	//odznacz to w iloscZapytan ale ZAAKCEPTOWANYCH
-	//odpowiedz do TESTERA
 	char testerQueueName[MAX_QUEUE_NAME];
 	setQueueName(buffPID, testerQueueName);
 	setMessageToTester(acceptance, buffWord, answerBuff);
 	wait(0);
 	sentAnswerToTester(acceptance, buffPID, buffWord, testerQueueName, answerBuff);
+	if(!AUTOMATON_RECEIVE) printf("inne miejsce???\n");
 	if(!AUTOMATON_RECEIVE && numberOfRun == 0) {
-		endValidatorProcess();
+		printf("czemu dziala to a nie tamto?: %d \n", checkIfNoRun());
+		printf("ostatni run otrzymalem \n");
+		fflush(stdin);
+		endValidatorProcess(0);
 	}
 	return 1;
 }
@@ -451,7 +428,6 @@ int processFromRun(char* buffPID, char* buffWord, char* answerBuff, const char* 
 
 int processReceivedMessage(char* buffPID, char* buffWord, const char* message, const int messageSize) {
 	if(message[0] == messageFromTester && AUTOMATON_RECEIVE) {
-		//printf("wiadomosc od testera\n"); 
 		return processFromTester(buffPID, buffWord, message, messageSize);}
 	if(message[0] == messageFromRun) {return processFromRun(buffPID, buffWord, messageToTester, message, messageSize);}
 	return 1;
@@ -480,15 +456,16 @@ void saveToAutomatonHeader(Automaton* automaton, int header_index, int val) {
 void load_automaton_N(Automaton* automaton, char* buffer) {
 	int val;
 	int i = 0;
-	//int header_index = 0;
+	int str_int_pos = 0;
 	char last = ' ';
-	char str_int[3];
+	char str_int[50];
 	bool startNextInt = true;
 	while(last != '\n') {
 		last = buffer[i++];		
 		if(startNextInt) {
-			memset(str_int, 0, 3);
-			str_int[0] = last;
+			str_int_pos = 0;
+			memset(str_int, 0, 50);
+			str_int[str_int_pos++] = last;
 			startNextInt = false;
 		}
 		else {
@@ -502,19 +479,17 @@ void load_automaton_N(Automaton* automaton, char* buffer) {
 				startNextInt = true;
 			}
 			else {
-				str_int[1] = last;
+				str_int[str_int_pos++] = last;
 			}
 		}
 	}
 }
 
 
-// 7 2 2 0 1
 void readAutomatonFromStdin(char* automatonBuffer) {
 	Automaton automaton;
 	char line[MAX_SIZE];
 	memset(line, 0, MAX_SIZE);
-	//memset(automatonBuffer, 0, MAX_AUTOMATON_SIZE);
 	fgets(line, MAX_SIZE, stdin);
 	load_automaton_N(&automaton, line);
 
@@ -527,16 +502,19 @@ void readAutomatonFromStdin(char* automatonBuffer) {
 		strcat(automatonBuffer, line);		
 	}
 	automatonBuffer[strlen(automatonBuffer)] = '#';
-	//printf("zaladowany automat:\n%s \n", automatonBuffer);
+	//printf("automaton: %s \n",automatonBuffer);
 }
+
+
+
+
 
 
 int main () {
 
 	allocate_buffer(&allocatedAutomaton, MAX_AUTOMATON_SIZE);
 	readAutomatonFromStdin(allocatedAutomaton); 	//TODO wczytaj automat OK/ TODO testuj wczytywanie
-
-
+	//printf("DLACZGO SPITFIRE NIE LECI?!?!\n");
 
 	mqd_t desc;
     struct mq_attr attr;
@@ -547,39 +525,20 @@ int main () {
     attr.mq_maxmsg = 10;
     attr.mq_msgsize = MAX_SIZE;
     attr.mq_curmsgs = 0;	
-	char* queueName = "/validatorReceive";
-    desc = mq_open(queueName, O_CREAT | O_RDONLY, 0644, &attr);
 
-	//char testerQueueName[MAX_QUEUE_NAME];
+    desc = mq_open(queueName, O_CREAT | O_RDONLY, 0644, &attr);
+	validatorQueueDescriptor = desc;
 
 	if(desc == (mqd_t) -1)
       syserr("Error in mq_open");
 
-
-	while(AUTOMATON_RECEIVE) {
+	bool ALWAYS_RECEIVE = true;
+	while(ALWAYS_RECEIVE) {
 		ret = mq_receive(desc, buff, buff_size, NULL);
 		if (ret < 0) syserr("Error in rec: ");
-		printf("otrzymalem wiadomosc: %s \n", buff);
 		processReceivedMessage(buffPID, pendingWordBuff, buff, ret);
-
-		//printf("OTRZYMALE PID: %s  \n", buffPID);
-		//printf("OTRZYMANE SLOW: %s \n", pendingWordBuff);
-		
-		//odsylamy ja do testera
-		//char* acceptance_ = "T";
-		//memset(testerQueueName, 0, 50);
-		//setQueueName(buffPID, testerQueueName);
-		//sentAnswerToTester(acceptance_, buffPID, pendingWordBuff, testerQueueName, buff);
-
-		//TODO przetworz ja bo albo od run albo od testera 
-  		//printf("We have read msg of size %d\n", ret);
-  		//printf("The received message is >>%s<<\n", buff);
 	}
 	if (mq_close(desc)) syserr("Error in close:");
-	if (mq_unlink(queueName)) syserr("Error in unlink:");
-
-
-	
-
+	if (mq_unlink(queueName)) syserr("Error in unlink:");	
     return 0;
 }
